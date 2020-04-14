@@ -1,0 +1,159 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+  Practical Machine Learning - Prediction Assignment Writeup
+==========================================================
+  ## by: John Bohorquez
+
+# Summary
+One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+The purpose of this project is to predict the manner in which they did the exercise.
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+
+### 1: Load the data
+The information is available from the website http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har.  Section Weight Lifting Exercise Dataset.
+
+Datasets
+
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+Loading data
+```{r Data loading, results='hide'}
+train_website <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(train_website, destfile = "./train.csv")
+train_data <- read.table("./train.csv", sep =",", header = T)
+test_website <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(test_website, destfile = "./test.csv")
+test_data <- read.table("./test.csv", sep =",", header = T)
+```
+
+
+### 2: Explore and clean the data
+Perform a general overview of the datasets.
+```{r Exploratory, results='hide'}
+## Check basic information to determine the dataset size.
+library(caret)
+dim(train_data)
+dim(test_data)
+colnames(train_data)
+head(train_data[1:6, 1:10])
+##  Clean the datasets with nearZeroVar to excluded worthlerss variables.
+zero_var <- nearZeroVar(train_data)
+train_data1 <- train_data[, -zero_var]
+test_data1 <- test_data[, -zero_var]
+dim(train_data1)
+## Clean the datasets by excluding NA Columns (Threshold 80%).
+na_column <- sapply(train_data1, function(x) mean(is.na(x))) > 0.8
+train_data2 <- train_data1[, na_column == FALSE]
+test_data2 <- test_data1[, na_column == FALSE]
+dim(train_data2)
+## Removing labeled columns that are not part of the records.
+train_data3 <- train_data2[, 7:59]
+test_data3 <- test_data2[, 7:59]
+dim(train_data3)
+```
+
+
+### 3: Data Subseting (Training & testing)
+Set a training partition in about 60% and 40% for testing purposes.
+```{r Sata Split, results='hide'}
+train_split <- createDataPartition(train_data3$classe, p=0.6, list=FALSE)
+train_sample <- train_data3[train_split,]
+test_sample <- train_data3[-train_split,]
+dim(train_sample)
+dim(test_sample)
+```
+
+
+### 4: Prediction Models
+Analyze different models to see which one has the higher accuracy
+
+#### 4.1: Random Forest
+All Variables
+```{r Random Forest - All Variables, warning=FALSE}
+## This option contains all the variables
+modelrfcv <- train(classe ~ ., data=train_sample, ntree=100, method='rf', trControl=trainControl(method="cv", number=5))
+```
+```{r, warning=FALSE}
+set.seed(12345)
+rfcv_predict <- predict(modelrfcv, test_sample)
+rfcv_predict_conf <- confusionMatrix(rfcv_predict, test_sample$classe)
+```
+
+PCA preProcessing
+```{r Random Forest - PCA preProcessing, warning=FALSE}
+## PCA method might shrink the predictors
+modelrfcvpca <- train(classe ~ ., data=train_sample, ntree=100, method='rf', preProcess="pca", trControl=trainControl(method="cv", number=5))
+modelrfcvpca$finalModel
+```
+```{r}
+set.seed(12345)
+rfcvpca_predict <- predict(modelrfcvpca, test_sample)
+rfcvpca_predict_conf <- confusionMatrix(rfcvpca_predict, test_sample$classe)
+```
+
+#### 4.2: Decision Tree
+Les't run this model with prediction portion
+```{r Decision tree}
+library(rattle)
+modeldt <- train(classe ~. , data=train_sample, method= "rpart")
+fancyRpartPlot(modeldt$finalModel)
+```
+```{r}
+set.seed(12345)
+dt_predict <- predict(modeldt, test_sample)
+dt_predict_conf <- confusionMatrix(dt_predict, test_sample$classe)
+```
+
+#### 4.3: Boosting (GBM)
+Last model to do a comparison with early options
+```{r Boosting}
+library(gbm)
+set.seed(12345)
+modelgbm <- train(classe~., data=train_sample, method="gbm", verbose= FALSE)
+```
+```{r}
+gbm_predict <- predict(modelgbm, test_sample)
+gbm_predict_conf <- confusionMatrix(gbm_predict, test_sample$classe)
+```
+
+
+##### Comparison to select the fittest model
+```{r Comparison}
+rfcv_predict_conf$overall
+rfcvpca_predict_conf$overall
+dt_predict_conf$overall
+gbm_predict_conf$overall
+```
+
+
+### 5: Conclusion
+Based on the statistics the best model for our project is Random Forest (Without PCA preProcessing), since the accurracy is higher than other options.
+
+##### Cross Validation
+This tool is useful with procesess or databases that do not have a wide variation along the time, as we saw in the Forecast slides.  For personal purposes, I'm interested to evaluate seasonal behaviors to enhance the prediction process in my field.
+```{r}
+rfcv_predict_conf
+```
+
+
+### 6: Prediction
+Once selected the best model, is the time to apply it to the original test dataset.
+```{r Prediction}
+actual_predict <- predict(modelrfcv, test_data3)
+actual_predict
+```
+
+##### Out-of-sample Error
+OOS error could be measured with datasets that contain actual outcomes in order to do the comparison, which means that it is a post-mortem process; as a source to get lesson learned and adjust the model could works (Our test data -20 rows- does not contain the actual classe).  In other words, we are making a decision based on in-sample error.
